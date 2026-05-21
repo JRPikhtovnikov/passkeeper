@@ -53,7 +53,7 @@ PassKeeper - локальный desktop-менеджер паролей на C++
 passkeeper/
 ├── CMakeLists.txt
 ├── README.md
-├── .env.example
+├── .env
 ├── qml/
 │   ├── Main.qml
 │   └── qml.qrc
