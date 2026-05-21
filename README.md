@@ -1,53 +1,171 @@
 # PassKeeper
 
-Local desktop password manager built with C++20, Qt Quick/QML, PostgreSQL/libpq and OpenSSL.
+PassKeeper - локальный desktop-менеджер паролей на C++20 и Qt Quick/QML. Приложение хранит записи в локальной PostgreSQL-базе, шифрует чувствительные поля через OpenSSL и работает без облака, синхронизации и внешних аккаунтов.
 
-## Architecture
+Проект сделан как учебно-практическая реализация уровня junior+/middle: код разделен на модули, криптографическая логика вынесена отдельно, UI общается с бизнес-логикой через QML-controller, а PostgreSQL подключается напрямую через `libpq`, без Qt-драйвера `QPSQL`.
 
-- `ui/` - QML-facing controller.
-- `qml/` - Qt Quick/QML screens and controls.
-- `core/` - runtime application context.
-- `crypto/` - PBKDF2-HMAC-SHA256, AES-256-GCM and secure password generation.
-- `database/` - direct PostgreSQL/libpq connection and schema bootstrapping.
-- `models/` - DTO-style application models.
-- `services/` - authentication, categories, entries, clipboard and import/export.
-- `utils/` - small helpers.
+## Возможности
 
-## Cryptographic Scheme
+- Первый запуск с созданием мастер-пароля.
+- Вход по мастер-паролю.
+- Хранение только производных криптографических данных, без сохранения мастер-пароля.
+- Использование salt и PBKDF2-HMAC-SHA256.
+- AES-256-GCM шифрование полей записи: логин, пароль, URL, заметки.
+- Отдельный nonce и authentication tag для каждого зашифрованного поля.
+- CRUD для записей: создание, просмотр, изменение, удаление.
+- Категории: создание, переименование, удаление, привязка записей.
+- Поиск по названию, URL и категории.
+- Генератор стойких паролей с настройкой длины и наборов символов.
+- Копирование пароля в буфер обмена.
+- Автоматическая очистка буфера через настраиваемое время.
+- Зашифрованный экспорт всей базы в файл.
+- Импорт зашифрованного файла.
+- Современный минималистичный интерфейс на QML.
 
-- Master password is never stored.
-- On first launch the app creates a 128-bit random salt and derives 64 bytes with PBKDF2-HMAC-SHA256.
-- The first 32 bytes are the AES-256-GCM vault key kept only in memory after unlock.
-- The second 32 bytes are hashed as a verifier and stored in `app_settings`.
-- Every encrypted field has its own 96-bit GCM nonce and 128-bit authentication tag.
-- Entry field AAD binds ciphertext to `entry_id` and field name.
-- Export files are JSON envelopes encrypted with AES-256-GCM using a key derived from the export password.
+## Стек
 
-For production hardening, prefer Argon2id through libsodium or OpenSSL provider support when available,
-raise KDF parameters after benchmarking on target machines, and consider encrypting titles too if metadata
-confidentiality is required.
+- C++20
+- Qt Quick / QML / Quick Controls 2
+- PostgreSQL
+- `libpq` для прямого подключения к PostgreSQL
+- OpenSSL для KDF, случайных байтов и AES-GCM
+- CMake
 
-## PostgreSQL Setup
+## Архитектура
 
-Create a local database:
+Проект разделен на независимые слои:
 
-```bash
-createdb passkeeper
+- `qml/` - QML-интерфейс приложения.
+- `src/ui/` - QML-facing controller, который связывает QML и C++ сервисы.
+- `src/core/` - runtime-контекст приложения.
+- `src/crypto/` - криптография, генератор паролей, derivation ключей.
+- `src/database/` - подключение к PostgreSQL через `libpq`, выполнение SQL-запросов.
+- `src/models/` - модели данных.
+- `src/services/` - бизнес-логика: авторизация, записи, категории, clipboard, импорт/экспорт.
+- `src/utils/` - вспомогательные функции, загрузка `.env`.
+- `schema/` - SQL-схема базы данных.
+
+Основная идея архитектуры: UI ничего не знает о SQL и криптографии напрямую. QML вызывает методы `QmlAppController`, а controller делегирует работу сервисам.
+
+## Структура проекта
+
+```text
+passkeeper/
+├── CMakeLists.txt
+├── README.md
+├── .env.example
+├── qml/
+│   ├── Main.qml
+│   └── qml.qrc
+├── schema/
+│   └── schema.sql
+└── src/
+    ├── core/
+    ├── crypto/
+    ├── database/
+    ├── models/
+    ├── services/
+    ├── ui/
+    └── utils/
 ```
 
-The app connects to PostgreSQL directly through `libpq`; no Qt `QPSQL` SQL plugin is required.
+## Криптографическая схема
 
-The app reads connection settings from environment variables:
+Мастер-пароль не хранится в базе данных.
 
-```bash
-export PASSKEEPER_DB_HOST=localhost
-export PASSKEEPER_DB_PORT=5432
-export PASSKEEPER_DB_NAME=passkeeper
-export PASSKEEPER_DB_USER=postgres
-export PASSKEEPER_DB_PASSWORD=''
+При первом запуске приложение:
+
+1. Генерирует случайный salt размером 128 бит.
+2. Получает 64 байта через `PBKDF2-HMAC-SHA256`.
+3. Делит результат на два ключевых материала:
+   - первые 32 байта - ключ AES-256-GCM для шифрования записей;
+   - вторые 32 байта - verifier key.
+4. Хеширует verifier key и сохраняет verifier в таблицу `app_settings`.
+
+При входе:
+
+1. Из базы читаются salt, количество итераций и verifier.
+2. Из введенного мастер-пароля заново выводятся ключи.
+3. Новый verifier сравнивается с сохраненным через constant-time сравнение.
+4. Если проверка успешна, AES-ключ остается только в памяти процесса.
+
+Для каждой записи шифруются поля:
+
+- `username`
+- `password`
+- `url`
+- `notes`
+
+Для каждого поля хранится отдельный набор:
+
+- `nonce`
+- `ciphertext`
+- `tag`
+
+Дополнительно используется AAD, который привязывает ciphertext к `entry_id` и имени поля.
+
+## Важные замечания по безопасности
+
+Это учебно-практический проект, но в нем уже используются нормальные базовые принципы:
+
+- мастер-пароль не сохраняется;
+- чувствительные поля шифруются перед записью в PostgreSQL;
+- используется authenticated encryption через AES-256-GCM;
+- nonce создается отдельно для каждого поля;
+- пароль генерируется через криптографически стойкий random source OpenSSL;
+- буфер обмена очищается автоматически.
+
+Что стоит улучшить для production-уровня:
+
+- заменить PBKDF2 на Argon2id через libsodium или другой надежный provider;
+- добавить миграции схемы вместо простого `CREATE TABLE IF NOT EXISTS`;
+- зашифровать title, если нужно скрывать метаданные;
+- добавить блокировку приложения по таймеру неактивности;
+- добавить memory locking для ключевого материала;
+- добавить unit-тесты для crypto/database/services;
+- добавить аудит UX для ошибок импорта/экспорта.
+
+## База данных
+
+Каноническая схема лежит в:
+
+```text
+schema/schema.sql
 ```
 
-Or create a local `.env` file near the executable or in the project root:
+Основные таблицы:
+
+- `app_settings` - настройки приложения, salt, KDF metadata, verifier.
+- `categories` - категории записей.
+- `password_entries` - записи паролей и зашифрованные поля.
+
+Приложение само выполняет создание таблиц при старте через `DatabaseManager::ensureSchema()`.
+
+## Настройка PostgreSQL
+
+Если база еще не создана:
+
+```bash
+/Library/PostgreSQL/16/bin/createdb -U postgres passkeeper
+```
+
+Или, если `createdb` уже есть в `PATH`:
+
+```bash
+createdb -U postgres passkeeper
+```
+
+Проверить подключение можно так:
+
+```bash
+/Library/PostgreSQL/16/bin/psql -U postgres -h localhost -d passkeeper
+```
+
+## Конфигурация через `.env`
+
+Приложение умеет читать `.env` из корня проекта или рядом с executable.
+
+Пример:
 
 ```env
 PASSKEEPER_DB_HOST=localhost
@@ -57,31 +175,131 @@ PASSKEEPER_DB_USER=postgres
 PASSKEEPER_DB_PASSWORD=your_postgres_password
 ```
 
-## Build
+В проекте есть шаблон:
 
-```bash
-cmake -S . -B build
-cmake --build build
-./build/passkeeper
+```text
+.env.example
 ```
 
-On Apple Silicon with Homebrew Qt and keg-only `libpq`, use:
+Локальный `.env` нужен, чтобы не вводить переменные окружения вручную перед каждым запуском.
+
+## Установка зависимостей на macOS
+
+Через Homebrew:
+
+```bash
+brew install qt libpq openssl@3 cmake
+```
+
+Если PostgreSQL установлен через официальный installer в `/Library/PostgreSQL/16`, это нормально. Для сборки проекта все равно используется Homebrew `libpq`, потому что приложение подключается к PostgreSQL через клиентскую библиотеку.
+
+## Сборка
+
+Для Apple Silicon с Homebrew:
 
 ```bash
 cmake -S . -B build \
   -DCMAKE_PREFIX_PATH=/opt/homebrew/opt/qt \
   -DPostgreSQL_ROOT=/opt/homebrew/opt/libpq
+
 cmake --build build
+```
+
+Для Intel Mac пути могут быть такими:
+
+```bash
+cmake -S . -B build \
+  -DCMAKE_PREFIX_PATH=/usr/local/opt/qt \
+  -DPostgreSQL_ROOT=/usr/local/opt/libpq
+
+cmake --build build
+```
+
+Запуск:
+
+```bash
 ./build/passkeeper
 ```
 
-Dependencies:
+## Почему не используется QPSQL
 
-- Qt 6 or Qt 5 with `Quick` and `QuickControls2`
-- PostgreSQL client library `libpq`
-- OpenSSL
-- CMake 3.20+
+Изначально проект использовал `QtSql` и драйвер `QPSQL`, но на macOS часто возникает проблема: PostgreSQL установлен, а Qt-плагин `libqsqlpsql.dylib` отсутствует.
 
-## SQL Schema
+Чтобы не собирать Qt SQL plugin вручную, проект был переведен на прямую работу с PostgreSQL через `libpq`.
 
-The canonical SQL file is [`schema/schema.sql`](schema/schema.sql).
+Плюсы такого подхода:
+
+- не нужен `QPSQL`;
+- не нужен `libqsqlpsql.dylib`;
+- меньше проблем с Qt plugin path;
+- PostgreSQL остается полноценной основной базой проекта.
+
+## Импорт и экспорт
+
+Экспорт создает JSON-envelope с encrypted payload.
+
+Файл защищается отдельным паролем экспорта:
+
+1. Из пароля экспорта и salt выводится ключ.
+2. Payload шифруется AES-256-GCM.
+3. В envelope сохраняются KDF metadata, salt, nonce, ciphertext и tag.
+
+При импорте GCM tag проверяет целостность и корректность пароля. Если файл изменен или пароль неверный, расшифровка завершается ошибкой.
+
+## Генератор паролей
+
+Генератор поддерживает:
+
+- длину от 8 до 256 символов;
+- lowercase;
+- uppercase;
+- digits;
+- symbols.
+
+Выбор индексов выполняется через rejection sampling, чтобы избежать modulo bias.
+
+## Очистка буфера обмена
+
+При копировании пароля приложение сохраняет значение в clipboard и запускает таймер.
+
+Если по истечении таймера clipboard все еще содержит тот же пароль, он очищается. Если пользователь уже скопировал что-то другое, новое содержимое не затирается.
+
+Время автоочистки настраивается в интерфейсе.
+
+## Текущий статус
+
+Проект компилируется и запускается как локальное desktop-приложение. Основные пользовательские сценарии реализованы:
+
+- создание мастер-пароля;
+- вход;
+- работа с категориями;
+- работа с записями;
+- поиск;
+- генерация пароля;
+- копирование пароля;
+- импорт/экспорт;
+- настройки clipboard timeout.
+
+## Полезные команды
+
+Полная пересборка:
+
+```bash
+rm -rf build
+cmake -S . -B build \
+  -DCMAKE_PREFIX_PATH=/opt/homebrew/opt/qt \
+  -DPostgreSQL_ROOT=/opt/homebrew/opt/libpq
+cmake --build build
+```
+
+Проверка QML:
+
+```bash
+/opt/homebrew/opt/qt/bin/qmllint qml/Main.qml
+```
+
+Запуск:
+
+```bash
+./build/passkeeper
+```
