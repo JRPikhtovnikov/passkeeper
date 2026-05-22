@@ -104,6 +104,68 @@ ApplicationWindow {
         }
     }
 
+    component ActionButton: Button {
+        id: actionButton
+        property string iconName: "copy"
+        property color fg: theme.text
+        implicitWidth: 36
+        implicitHeight: 34
+
+        contentItem: Item {
+            Canvas {
+                id: actionIcon
+                anchors.centerIn: parent
+                width: 18
+                height: 18
+                onPaint: {
+                    var ctx = getContext("2d")
+                    ctx.clearRect(0, 0, width, height)
+                    ctx.strokeStyle = actionButton.fg
+                    ctx.fillStyle = actionButton.fg
+                    ctx.lineWidth = 1.8
+                    ctx.lineCap = "round"
+                    ctx.lineJoin = "round"
+
+                    if (actionButton.iconName === "copy") {
+                        ctx.strokeRect(6, 4, 9, 11)
+                        ctx.strokeRect(3, 7, 9, 8)
+                    } else if (actionButton.iconName === "edit") {
+                        ctx.beginPath()
+                        ctx.moveTo(4, 14)
+                        ctx.lineTo(6.5, 10.5)
+                        ctx.lineTo(12.5, 4.5)
+                        ctx.lineTo(14.5, 6.5)
+                        ctx.lineTo(8.5, 12.5)
+                        ctx.lineTo(4, 14)
+                        ctx.stroke()
+                        ctx.beginPath()
+                        ctx.moveTo(11.5, 5.5)
+                        ctx.lineTo(13.5, 7.5)
+                        ctx.stroke()
+                    } else if (actionButton.iconName === "delete") {
+                        ctx.beginPath()
+                        ctx.moveTo(5, 5)
+                        ctx.lineTo(13, 13)
+                        ctx.moveTo(13, 5)
+                        ctx.lineTo(5, 13)
+                        ctx.stroke()
+                    }
+                }
+                Connections {
+                    target: actionButton
+                    function onIconNameChanged() { actionIcon.requestPaint() }
+                    function onFgChanged() { actionIcon.requestPaint() }
+                }
+            }
+        }
+
+        background: Rectangle {
+            color: actionButton.down ? "#e5e7eb" : (actionButton.hovered ? theme.panelSoft : theme.panel)
+            border.color: actionButton.hovered ? theme.accent : theme.border
+            radius: 7
+        }
+    }
+
     component PrimaryButton: Button {
         id: primaryButton
         implicitHeight: 40
@@ -450,11 +512,27 @@ ApplicationWindow {
                                         Layout.preferredWidth: 150
                                     }
                                     RowLayout {
-                                        Layout.preferredWidth: 116
-                                        spacing: 4
-                                        IconButton { text: "C"; ToolTip.visible: hovered; ToolTip.text: "Copy password"; onClicked: appController.copyPassword(modelData.id) }
-                                        IconButton { text: "E"; ToolTip.visible: hovered; ToolTip.text: "Edit"; onClicked: openEntryEditor(modelData) }
-                                        IconButton { text: "X"; fg: theme.danger; ToolTip.visible: hovered; ToolTip.text: "Delete"; onClicked: appController.deleteEntry(modelData.id) }
+                                        Layout.preferredWidth: 128
+                                        spacing: 6
+                                        ActionButton {
+                                            iconName: "copy"
+                                            ToolTip.visible: hovered
+                                            ToolTip.text: "Copy password"
+                                            onClicked: appController.copyPassword(modelData.id)
+                                        }
+                                        ActionButton {
+                                            iconName: "edit"
+                                            ToolTip.visible: hovered
+                                            ToolTip.text: "Edit"
+                                            onClicked: openEntryEditor(modelData)
+                                        }
+                                        ActionButton {
+                                            iconName: "delete"
+                                            fg: theme.danger
+                                            ToolTip.visible: hovered
+                                            ToolTip.text: "Delete"
+                                            onClicked: appController.deleteEntry(modelData.id)
+                                        }
                                     }
                                 }
                                 MouseArea {
