@@ -143,6 +143,95 @@ schema/schema.sql
 
 ## Настройка PostgreSQL
 
+Есть два удобных варианта: поднять PostgreSQL через Docker Compose или использовать уже установленный локальный PostgreSQL.
+
+## PostgreSQL через Docker Compose
+
+Для этого проекта Docker Compose используется для запуска PostgreSQL в одном контейнере. Само Qt/QML-приложение остается нативным desktop-приложением на macOS и подключается к базе по `localhost`.
+
+Это проще и надежнее, чем запускать GUI-приложение внутри Docker: на macOS для контейнерного GUI понадобились бы XQuartz, VNC или похожая прослойка.
+
+Файл Compose:
+
+```text
+docker-compose.yml
+```
+
+Контейнер:
+
+```text
+passkeeper-postgres
+```
+
+Данные PostgreSQL хранятся в named volume:
+
+```text
+passkeeper_postgres_data
+```
+
+Перед запуском проверь `.env`:
+
+```env
+PASSKEEPER_DB_HOST=localhost
+PASSKEEPER_DB_PORT=5432
+PASSKEEPER_DB_HOST_PORT=5432
+PASSKEEPER_DB_NAME=passkeeper
+PASSKEEPER_DB_USER=postgres
+PASSKEEPER_DB_PASSWORD=your_postgres_password
+```
+
+Запуск контейнера:
+
+```bash
+docker compose up -d
+```
+
+Проверка статуса:
+
+```bash
+docker compose ps
+```
+
+Просмотр логов:
+
+```bash
+docker compose logs -f postgres
+```
+
+Остановка:
+
+```bash
+docker compose down
+```
+
+Остановка с удалением данных базы:
+
+```bash
+docker compose down -v
+```
+
+Если на macOS уже запущен локальный PostgreSQL на порту `5432`, Docker может не суметь занять этот порт. Тогда можно использовать, например, порт `5433`.
+
+В `.env`:
+
+```env
+PASSKEEPER_DB_HOST=localhost
+PASSKEEPER_DB_PORT=5433
+PASSKEEPER_DB_HOST_PORT=5433
+PASSKEEPER_DB_NAME=passkeeper
+PASSKEEPER_DB_USER=postgres
+PASSKEEPER_DB_PASSWORD=your_postgres_password
+```
+
+После этого:
+
+```bash
+docker compose up -d
+./build/passkeeper
+```
+
+## Локальный PostgreSQL без Docker
+
 Если база еще не создана:
 
 ```bash
@@ -170,6 +259,7 @@ createdb -U postgres passkeeper
 ```env
 PASSKEEPER_DB_HOST=localhost
 PASSKEEPER_DB_PORT=5432
+PASSKEEPER_DB_HOST_PORT=5432
 PASSKEEPER_DB_NAME=passkeeper
 PASSKEEPER_DB_USER=postgres
 PASSKEEPER_DB_PASSWORD=your_postgres_password
